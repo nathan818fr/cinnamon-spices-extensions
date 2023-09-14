@@ -69,14 +69,14 @@ class BackToMonitorExtension {
         logger.log(`The 'minimize' parameter has been set to ${this._settings.minimize}`);
     };
 
-    _onOutputDisconnected = (_, {outputName, monitorRect, monitorIndex}) => {
+    _onOutputDisconnected = (_, {outputName, monitorRect}) => {
         const time = Date.now();
 
         const disconnectedWindows = new Set();
         this._monitorDisconnectedWindows.set(outputName, disconnectedWindows);
 
         for (const metaWindow of global.display.list_windows(0)) {
-            if (!windowSaver.isInside(metaWindow, monitorRect, monitorIndex)) {
+            if (!windowSaver.isInside(metaWindow, monitorRect)) {
                 continue;
             }
 
@@ -88,12 +88,20 @@ class BackToMonitorExtension {
                     windowState.y -= monitorRect.y;
 
                     // Save
-                    logger.log(`Save '${metaWindow.get_title()}' from ${outputName}: ${JSON.stringify(windowState)}`);
                     let savedStates = this._windowsSavedStates.get(metaWindow);
                     if (!savedStates) {
                         this._windowsSavedStates.set(metaWindow, (savedStates = new Map()));
                     }
-                    savedStates.set(outputName, {windowState, time});
+                    if (savedStates.has(outputName)) {
+                        logger.log(
+                            `Don't save '${metaWindow.get_title()}' from ${outputName}: a pending state from this monitor already exists`
+                        );
+                    } else {
+                        logger.log(
+                            `Save '${metaWindow.get_title()}' from ${outputName}: ${JSON.stringify(windowState)}`
+                        );
+                        savedStates.set(outputName, {windowState, time});
+                    }
                 }
             }
 
@@ -101,11 +109,11 @@ class BackToMonitorExtension {
         }
     };
 
-    _onOutputConnected = (_, {outputName, monitorRect, monitorIndex}) => {
+    _onOutputConnected = (_, {outputName, monitorRect}) => {
         this._monitorDisconnectedWindows.delete(outputName);
     };
 
-    _onMonitorUnloaded = (_, {outputName, monitorRect, monitorIndex}) => {
+    _onMonitorUnloaded = (_, {outputName, monitorRect}) => {
         const disconnectedWindows = this._monitorDisconnectedWindows.get(outputName);
         if (disconnectedWindows) {
             this._monitorDisconnectedWindows.delete(outputName);
@@ -118,16 +126,14 @@ class BackToMonitorExtension {
         }
     };
 
-    _onMonitorLoaded = (_, {outputName, monitorRect, monitorIndex}) => {
-        const time = Date.now();
-
+    _onMonitorLoaded = (_, {outputName, monitorRect}) => {
         for (const [metaWindow, savedStates] of this._windowsSavedStates.entries()) {
             let state = savedStates.get(outputName);
             if (state) {
-                // Cleanup this state
+                // Forget this state
                 savedStates.delete(outputName);
 
-                // Cleanup all younger states
+                // Forget all younger states
                 for (const [k, otherState] of savedStates.entries()) {
                     if (otherState.time >= state.time) {
                         savedStates.delete(k);
